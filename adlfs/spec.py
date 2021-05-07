@@ -346,6 +346,11 @@ class AzureBlobFileSystem(AsyncFileSystem):
         ...    client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
     >>> abfs.ls('')
 
+    Authentication with environment based identity which can be  EnvironmentCredential, ManagedIdentityCredential,
+    SharedTokenCache(Windows only), AzureCLI identity
+    >>> abfs = AzureBlobFileSystem(account_name="XXXX", tenant_id=TENANT_ID)
+
+
     **  Read files as: **
         -------------
         ddf = dd.read_csv('abfs://container_name/folder/*.csv', storage_options={
@@ -402,12 +407,17 @@ class AzureBlobFileSystem(AsyncFileSystem):
             self.credential is None
             and self.account_key is None
             and self.sas_token is None
-            and self.client_id is not None
         ):
-            (
-                self.credential,
-                self.sync_credential,
-            ) = self._get_credential_from_service_principal()
+            if self.client_id is not None:
+                (
+                    self.credential,
+                    self.sync_credential,
+                ) = self._get_credential_from_service_principal()
+            else:
+                (
+                    self.credential,
+                    self.sync_credential,
+                ) = self._get_default_credential()
         else:
             self.sync_credential = None
         self.do_connect()
@@ -469,9 +479,26 @@ class AzureBlobFileSystem(AsyncFileSystem):
 
         return (async_credential, sync_credential)
 
+    def _get_default_credential(self):
+        """
+        Use azure identity default credential resolver method. This is useful both for local development
+        (eg. to use VS Code token cache) and on Azure by using managed identity.
+        https://docs.microsoft.com/en-us/python/api/azure-identity/azure.identity.defaultazurecredential
+
+        Returns
+        -------
+        Tuple of (Async Credential, Sync Credential).
+        """
+        from azure.identity import DefaultAzureCredential
+        from azure.identity.aio import (
+            DefaultAzureCredential as AIODefaultAzureCredential,
+        )
+
+        return (AIODefaultAzureCredential(), DefaultAzureCredential())
+
     def do_connect(self):
         """Connect to the BlobServiceClient, using user-specified connection details.
-        Tries credentials first, then connection string and finally account key
+        Tries credentials first, then connection string and finally account key.
 
         Raises
         ------
